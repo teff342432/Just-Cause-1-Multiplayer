@@ -1,0 +1,69 @@
+
+name: Build JC1MP Complete
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'client/**'
+      - 'dinput8/**'
+      - 'masterserver/**'
+      - 'external/**'
+      - 'shared/**'
+      - 'globals/**'
+      - 'tcp/**'
+      - 'tcp_client/**'
+      - 'tcp_server/**'
+      - 'profiling/**'
+      - 'hde/**'
+      - 'scripting/**'
+      - 'utils/**'
+      - 'thread_system/**'
+      - 'sql/**'
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+
+      - name: Preparar MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Compilar jcmp_client.dll
+        shell: pwsh
+        run: |
+          msbuild client\client.vcxproj /m /p:Configuration=Release /p:Platform=Win32 "/p:SolutionDir=$($env:GITHUB_WORKSPACE)/" /p:PostBuildEventUseInBuild=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compilar dinput8.dll
+        shell: pwsh
+        run: |
+          msbuild dinput8\dinput8.vcxproj /m /p:Configuration=Release /p:Platform=Win32 "/p:SolutionDir=$($env:GITHUB_WORKSPACE)/" /p:PostBuildEventUseInBuild=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compilar masterserver.exe
+        shell: pwsh
+        run: |
+          msbuild masterserver\masterserver.vcxproj /m /p:Configuration=Release /p:Platform=Win32 "/p:SolutionDir=$($env:GITHUB_WORKSPACE)/" /p:PostBuildEventUseInBuild=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Conferir arquivos
+        shell: pwsh
+        run: |
+          Get-Item bins\client\jcmp_client.dll
+          Get-Item bins\client\dinput8.dll
+          Get-Item bins\ms\masterserver.exe
+
+      - name: Disponibilizar download
+        uses: actions/upload-artifact@v4
+        with:
+          name: JC1MP-Complete
+          path: |
+            bins/client/jcmp_client.dll
+            bins/client/dinput8.dll
+            bins/ms/masterserver.exe
+          if-no-files-found: error
