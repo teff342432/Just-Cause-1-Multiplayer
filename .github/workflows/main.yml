@@ -1,0 +1,46 @@
+
+name: Build JC1MP Master Server
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'masterserver/**'
+      - 'external/**'
+      - 'globals/**'
+      - 'tcp/**'
+      - 'tcp_client/**'
+      - 'tcp_server/**'
+      - 'profiling/**'
+      - 'sql/**'
+      - 'utils/**'
+      - 'thread_system/**'
+      - 'JustCauseMP.sln'
+      - '.github/workflows/main.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+
+      - name: Preparar MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Compilar Master Server
+        run: >
+          msbuild JustCauseMP.sln
+          /t:masterserver
+          /m
+          /p:Configuration=Release
+          /p:Platform=x86
+          /p:PostBuildEventUseInBuild=false
+
+      - name: Disponibilizar EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: JC1MP-MasterServer
+          path: bins/ms/masterserver.exe
+          if-no-files-found: error
