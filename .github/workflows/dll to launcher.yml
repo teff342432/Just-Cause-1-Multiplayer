@@ -1,34 +1,4 @@
 
-      - name: Baixar dependência DirectX D3DX
-        shell: pwsh
-        run: |
-          $url = "https://api.nuget.org/v3-flatcontainer/microsoft.dxsdk.d3dx/9.29.952.8/microsoft.dxsdk.d3dx.9.29.952.8.nupkg"
-          $pkg = "$env:RUNNER_TEMP\dxsdk.nupkg"
-          $dest = "$env:RUNNER_TEMP\dxsdk"
-
-          Invoke-WebRequest -Uri $url -OutFile $pkg
-          Expand-Archive -Path $pkg -DestinationPath $dest -Force
-
-          $header = Get-ChildItem -Path $dest -Filter "d3dx9math.h" -Recurse | Select-Object -First 1
-          if (-not $header) {
-            throw "ERRO: d3dx9math.h não encontrado no pacote DirectX."
-          }
-
-          $lib = Get-ChildItem -Path $dest -Filter "d3dx9.lib" -Recurse |
-            Where-Object { $_.FullName -match '\\x86\\' } |
-            Select-Object -First 1
-
-          if (-not $lib) {
-            throw "ERRO: d3dx9.lib para Win32 não encontrada."
-          }
-
-          "INCLUDE=$($header.Directory.FullName);$env:INCLUDE" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "LIB=$($lib.Directory.FullName);$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-          Write-Host "DirectX D3DX configurado!"
-          Write-Host "Headers: $($header.Directory.FullName)"
-          Write-Host "Bibliotecas: $($lib.Directory.FullName)"
-
 name: Build JC1MP Complete
 
 on:
@@ -60,38 +30,95 @@ jobs:
       - name: Baixar codigo
         uses: actions/checkout@v4
 
-      - name: Preparar MSBuild
+      - name: Preparar ambiente C++
         uses: microsoft/setup-msbuild@v2
 
-      - name: Compilar jcmp_client.dll
+      - name: Instalar DirectX D3DX
         shell: pwsh
         run: |
-          msbuild client\client.vcxproj /m /p:Configuration=Release /p:Platform=Win32 "/p:SolutionDir=$($env:GITHUB_WORKSPACE)/" /p:PostBuildEventUseInBuild=false
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $ErrorActionPreference = "Stop"
 
-      - name: Compilar dinput8.dll
+          $url = "https://api.nuget.org/v3-flatcontainer/microsoft.dxsdk.d3dx/9.29.952.8/microsoft.dxsdk.d3dx.9.29.952.8.nupkg"
+          $pkg = "$env:RUNNER_TEMP\dxsdk.nupkg"
+          $dest = "$env:RUNNER_TEMP\dxsdk"
+
+          Invoke-WebRequest -Uri $url -OutFile $pkg
+          Expand-Archive -Path $pkg -DestinationPath $dest -Force
+
+          $header = Get-ChildItem $dest -Filter d3dx9math.h -Recurse |
+            Select-Object -First 1
+
+          $lib = Get-ChildItem $dest -Filter d3dx9.lib -Recurse |
+            Where-Object { $_.FullName -match '[\\/]x86[\\/]' } |
+            Select-Object -First 1
+
+          if (-not $header) {
+            throw "DirectX: d3dx9math.h nao encontrado."
+          }
+
+          if (-not $lib) {
+            throw "DirectX: d3dx9.lib Win32 nao encontrada."
+          }
+
+          "DXSDK_INCLUDE=$($header.Directory.FullName)" |
+            Out-File $env:GITHUB_ENV -Append
+
+          "DXSDK_LIB=$($lib.Directory.FullName)" |
+            Out-File $env:GITHUB_ENV -Append
+
+          Write-Host "DirectX D3DX pronto."
+
+      - name: Compilar todos os projetos
         shell: pwsh
         run: |
-          msbuild dinput8\dinput8.vcxproj /m /p:Configuration=Release /p:Platform=Win32 "/p:SolutionDir=$($env:GITHUB_WORKSPACE)/" /p:PostBuildEventUseInBuild=false
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $ErrorActionPreference = "Stop"
 
-      - name: Compilar masterserver.exe
+          $projects = @(
+            "client\client.vcxproj",
+            "dinput8\dinput8.vcxproj",
+            "masterserver\masterserver.vcxproj"
+          )
+
+          foreach ($project in $projects) {
+            Write-Host "======================================"
+            Write-Host "Compilando $project"
+            Write-Host "======================================"
+
+            msbuild $project `
+              /m `
+              /p:Configuration=Release `
+              /p:Platform=Win32 `
+              "/p:SolutionDir=$env:GITHUB_WORKSPACE\" `
+              "/p:IncludePath=$env:DXSDK_INCLUDE;$(IncludePath)" `
+              "/p:LibraryPath=$env:DXSDK_LIB;$(LibraryPath)" `
+              /p:PostBuildEventUseInBuild=false
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "Falha ao compilar $project"
+            }
+          }
+
+      - name: Conferir DLLs e EXE
         shell: pwsh
         run: |
-          msbuild masterserver\masterserver.vcxproj /m /p:Configuration=Release /p:Platform=Win32 "/p:SolutionDir=$($env:GITHUB_WORKSPACE)/" /p:PostBuildEventUseInBuild=false
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $files = @(
+            "bins\client\jcmp_client.dll",
+            "bins\client\dinput8.dll",
+            "bins\ms\masterserver.exe"
+          )
 
-      - name: Conferir arquivos
-        shell: pwsh
-        run: |
-          Get-Item bins\client\jcmp_client.dll
-          Get-Item bins\client\dinput8.dll
-          Get-Item bins\ms\masterserver.exe
+          foreach ($file in $files) {
+            if (!(Test-Path $file)) {
+              throw "Arquivo nao encontrado: $file"
+            }
 
-      - name: Disponibilizar download
+            Get-Item $file | Format-Table Name, Length, FullName
+          }
+
+      - name: Gerar pacote completo
         uses: actions/upload-artifact@v4
         with:
-          name: JC1MP-Complete
+          name: JC1MP-COMPLETE
           path: |
             bins/client/jcmp_client.dll
             bins/client/dinput8.dll
